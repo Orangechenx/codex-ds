@@ -1,5 +1,8 @@
 ## Installing & building
 
+This page describes how to build and run the **DeepSeek-optimized fork**
+maintained at `Orangechenx/codex-ds`.
+
 ### System requirements
 
 | Requirement                 | Details                                                         |
@@ -8,16 +11,12 @@
 | Git (optional, recommended) | 2.23+ for built-in PR helpers                                   |
 | RAM                         | 4-GB minimum (8-GB recommended)                                 |
 
-### DotSlash
-
-The GitHub Release also contains a [DotSlash](https://dotslash-cli.com/) file for the Codex CLI named `codex`. Using a DotSlash file makes it possible to make a lightweight commit to source control to ensure all contributors use the same version of an executable, regardless of what platform they use for development.
-
 ### Build from source
 
 ```bash
 # Clone the repository and navigate to the root of the Cargo workspace.
-git clone https://github.com/openai/codex.git
-cd codex/codex-rs
+git clone https://github.com/Orangechenx/codex-ds.git
+cd codex-ds/codex-rs
 
 # Install the Rust toolchain, if necessary.
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
@@ -46,6 +45,13 @@ just test
 # Avoid `--all-features` for routine local runs because it increases build
 # time and `target/` disk usage by compiling additional feature combinations.
 ```
+
+## Important fork note
+
+If you install Codex via the official OpenAI install script, npm package,
+Homebrew cask, or upstream release binaries, you will get upstream Codex CLI
+instead of this fork. To use the DeepSeek-focused changes in this repository,
+build this fork from source or publish your own binaries from it.
 
 ## Tracing / verbose logging
 

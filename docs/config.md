@@ -1,5 +1,9 @@
 # Configuration
 
+This fork of Codex CLI is maintained specifically to improve the DeepSeek
+experience. The configuration guidance below therefore emphasizes
+DeepSeek-compatible providers first.
+
 For basic configuration instructions, see [this documentation](https://developers.openai.com/codex/config-basic).
 
 For advanced configuration instructions, see [this documentation](https://developers.openai.com/codex/config-advanced).

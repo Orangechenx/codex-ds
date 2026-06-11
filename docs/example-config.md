@@ -1,5 +1,8 @@
 # Sample configuration
 
+This page shows sample configuration for the **DeepSeek-optimized fork** of
+Codex CLI maintained in this repository.
+
 For a sample configuration file, see [this documentation](https://developers.openai.com/codex/config-sample).
 
 ## DeepSeek-compatible provider example
