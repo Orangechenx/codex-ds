@@ -37,5 +37,7 @@ Notes:
   `reasoning.encrypted_content`, and it strips cached raw/encrypted reasoning
   content from replayed history to reduce prompt-token overhead on long
   sessions.
+- Older oversized tool outputs from prior turns are also truncated more
+  aggressively than the current turn's latest tool outputs.
 - If your gateway supports the Responses WebSocket transport, you can set
   `supports_websockets = true`; otherwise leave it disabled.

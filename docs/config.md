@@ -48,6 +48,9 @@ optimizations:
 - It does **not** request `reasoning.encrypted_content` from the Responses API.
 - It strips cached raw/encrypted reasoning content from replayed history before
   sending the next request, reducing prompt-token overhead.
+- It more aggressively truncates older tool outputs from prior turns while
+  leaving the most recent post-user-boundary tool outputs intact, reducing
+  prompt cost without discarding the current turn's working state.
 - It understands DeepSeek-style prompt-cache accounting fields such as
   `prompt_cache_hit_tokens` in addition to the OpenAI-style nested cached-token
   fields.

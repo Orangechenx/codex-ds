@@ -111,6 +111,8 @@ use crate::attestation::X_OAI_ATTESTATION_HEADER;
 use crate::client_common::Prompt;
 use crate::client_common::ResponseEvent;
 use crate::client_common::ResponseStream;
+use crate::context_manager::is_user_turn_boundary;
+use crate::context_manager::truncate_function_output_payload;
 use crate::feedback_tags;
 use crate::util::emit_feedback_auth_recovery_tags;
 use codex_api::map_api_error;
@@ -130,6 +132,7 @@ use codex_response_debug_context::extract_response_debug_context;
 use codex_response_debug_context::extract_response_debug_context_from_api_error;
 use codex_response_debug_context::telemetry_api_error_message;
 use codex_response_debug_context::telemetry_transport_error_message;
+use codex_utils_output_truncation::TruncationPolicy;
 
 pub const OPENAI_BETA_HEADER: &str = "OpenAI-Beta";
 pub const X_CODEX_INSTALLATION_ID_HEADER: &str = "x-codex-installation-id";
@@ -138,6 +141,7 @@ pub const X_CODEX_TURN_METADATA_HEADER: &str = "x-codex-turn-metadata";
 pub const X_CODEX_PARENT_THREAD_ID_HEADER: &str = "x-codex-parent-thread-id";
 pub const X_CODEX_WINDOW_ID_HEADER: &str = "x-codex-window-id";
 pub const X_OPENAI_MEMGEN_REQUEST_HEADER: &str = "x-openai-memgen-request";
+const DEEPSEEK_OLDER_OUTPUT_TOKEN_LIMIT: usize = 256;
 pub const X_OPENAI_SUBAGENT_HEADER: &str = "x-openai-subagent";
 pub const X_RESPONSESAPI_INCLUDE_TIMING_METRICS_HEADER: &str =
     "x-responsesapi-include-timing-metrics";
@@ -766,9 +770,12 @@ impl ModelClient {
             return input;
         }
 
+        let last_user_boundary = input.iter().rposition(is_user_turn_boundary);
+
         input
             .into_iter()
-            .map(|item| match item {
+            .enumerate()
+            .map(|(index, item)| match item {
                 ResponseItem::Reasoning {
                     id,
                     summary,
@@ -780,6 +787,31 @@ impl ModelClient {
                     content: None,
                     encrypted_content: None,
                 },
+                ResponseItem::FunctionCallOutput { call_id, output }
+                    if last_user_boundary.is_some_and(|boundary| index < boundary) =>
+                {
+                    ResponseItem::FunctionCallOutput {
+                        call_id,
+                        output: truncate_function_output_payload(
+                            &output,
+                            TruncationPolicy::Tokens(DEEPSEEK_OLDER_OUTPUT_TOKEN_LIMIT),
+                        ),
+                    }
+                }
+                ResponseItem::CustomToolCallOutput {
+                    call_id,
+                    name,
+                    output,
+                } if last_user_boundary.is_some_and(|boundary| index < boundary) => {
+                    ResponseItem::CustomToolCallOutput {
+                        call_id,
+                        name,
+                        output: truncate_function_output_payload(
+                            &output,
+                            TruncationPolicy::Tokens(DEEPSEEK_OLDER_OUTPUT_TOKEN_LIMIT),
+                        ),
+                    }
+                }
                 other => other,
             })
             .collect()

@@ -2904,6 +2904,159 @@ async fn deepseek_compatibility_override_disabled_preserves_reasoning_round_trip
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deepseek_provider_aggressively_truncates_older_tool_outputs_only() {
+    skip_if_no_network!();
+
+    let server = MockServer::start().await;
+    let sse_body = concat!(
+        "event: response.created\n",
+        "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\"}}\n\n",
+        "event: response.completed\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\"}}\n\n",
+    );
+    let resp_mock = mount_sse_once(&server, sse_body.to_string()).await;
+
+    let provider = ModelProviderInfo {
+        name: "DeepSeek".into(),
+        base_url: Some(format!("{}/openai", server.uri())),
+        env_key: None,
+        env_key_instructions: None,
+        experimental_bearer_token: None,
+        auth: None,
+        aws: None,
+        wire_api: WireApi::Responses,
+        query_params: None,
+        http_headers: None,
+        env_http_headers: None,
+        request_max_retries: Some(0),
+        stream_max_retries: Some(0),
+        stream_idle_timeout_ms: Some(5_000),
+        websocket_connect_timeout_ms: None,
+        requires_openai_auth: false,
+        supports_websockets: false,
+    };
+
+    let codex_home = TempDir::new().unwrap();
+    let mut config = load_default_config_for_test(&codex_home).await;
+    config.model_provider_id = "deepseek".into();
+    config.model_provider = provider.clone();
+    let effort = config.model_reasoning_effort.clone();
+    let model = codex_core::test_support::get_model_offline(config.model.as_deref());
+    config.model = Some(model.clone());
+    let config = Arc::new(config);
+    let model_info =
+        codex_core::test_support::construct_model_info_offline(model.as_str(), &config);
+    let thread_id = ThreadId::new();
+    let session_telemetry = SessionTelemetry::new(
+        thread_id,
+        model.as_str(),
+        model_info.slug.as_str(),
+        /*account_id*/ None,
+        Some("test@test.com".to_string()),
+        /*auth_mode*/ None,
+        "test_originator".to_string(),
+        /*log_user_prompts*/ false,
+        "test".to_string(),
+        SessionSource::Exec,
+    );
+
+    let client = ModelClient::new(
+        /*auth_manager*/ None,
+        thread_id.into(),
+        thread_id,
+        /*installation_id*/ "11111111-1111-4111-8111-111111111111".to_string(),
+        provider,
+        SessionSource::Exec,
+        /*parent_thread_id*/ None,
+        config.model_verbosity,
+        /*enable_request_compression*/ false,
+        /*include_timing_metrics*/ false,
+        /*beta_features_header*/ None,
+        /*attestation_provider*/ None,
+    );
+    let mut client_session = client.new_session();
+
+    let long_output = "very long historical output line\n".repeat(3_000);
+    let recent_output = "recent short output".to_string();
+
+    let mut prompt = Prompt::default();
+    prompt.input.push(ResponseItem::Message {
+        id: Some("user-old".into()),
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "old user".into(),
+        }],
+        phase: None,
+    });
+    prompt.input.push(ResponseItem::FunctionCall {
+        id: Some("function-old".into()),
+        name: "old_tool".into(),
+        namespace: None,
+        arguments: "{}".into(),
+        call_id: "old-call".into(),
+    });
+    prompt.input.push(ResponseItem::FunctionCallOutput {
+        call_id: "old-call".into(),
+        output: FunctionCallOutputPayload::from_text(long_output.clone()),
+    });
+    prompt.input.push(ResponseItem::Message {
+        id: Some("user-new".into()),
+        role: "user".into(),
+        content: vec![ContentItem::InputText {
+            text: "new user".into(),
+        }],
+        phase: None,
+    });
+    prompt.input.push(ResponseItem::FunctionCall {
+        id: Some("function-new".into()),
+        name: "new_tool".into(),
+        namespace: None,
+        arguments: "{}".into(),
+        call_id: "new-call".into(),
+    });
+    prompt.input.push(ResponseItem::FunctionCallOutput {
+        call_id: "new-call".into(),
+        output: FunctionCallOutputPayload::from_text(recent_output.clone()),
+    });
+
+    let mut stream = client_session
+        .stream(
+            TEST_WINDOW_ID,
+            &prompt,
+            &model_info,
+            &session_telemetry,
+            effort,
+            ReasoningSummary::Auto,
+            /*service_tier*/ None,
+            /*turn_metadata_header*/ None,
+            &codex_rollout_trace::InferenceTraceContext::disabled(),
+        )
+        .await
+        .expect("responses stream to start");
+
+    while let Some(event) = stream.next().await {
+        if let Ok(ResponseEvent::Completed { .. }) = event {
+            break;
+        }
+    }
+
+    let request = resp_mock.single_request();
+    let old_output = request
+        .function_call_output_text("old-call")
+        .expect("old output should be present");
+    let new_output = request
+        .function_call_output_text("new-call")
+        .expect("new output should be present");
+
+    assert_ne!(old_output, long_output);
+    assert!(
+        old_output.contains("tokens truncated") || old_output.contains("bytes truncated"),
+        "expected old output to be aggressively truncated, got {old_output}"
+    );
+    assert_eq!(new_output, recent_output);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn token_count_includes_rate_limits_snapshot() {
     skip_if_no_network!();
     let server = MockServer::start().await;
