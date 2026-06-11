@@ -10,6 +10,7 @@ custom `model_provider` entry like the following is a good starting point:
 ```toml
 model_provider = "deepseek"
 model = "deepseek-v4-flash"
+model_deepseek_compatibility = "auto"
 
 [model_providers.deepseek]
 name = "DeepSeek"
@@ -29,6 +30,9 @@ Notes:
 
 - Codex automatically treats DeepSeek-compatible providers specially when the
   provider name, base URL, or model slug contains `deepseek`.
+- `model_deepseek_compatibility` accepts `auto`, `enabled`, or `disabled`.
+  Use `enabled` when a proxy/gateway hides the DeepSeek name, and `disabled`
+  when you need to opt out of the compatibility logic for debugging.
 - For those providers, Codex will not request
   `reasoning.encrypted_content`, and it strips cached encrypted reasoning from
   replayed history to reduce prompt-token overhead on long sessions.

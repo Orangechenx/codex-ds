@@ -1929,6 +1929,30 @@ async fn unknown_deepseek_models_use_large_fallback_context_window() {
 }
 
 #[tokio::test]
+async fn unknown_models_use_large_fallback_context_window_when_deepseek_compatibility_enabled() {
+    let auth = CodexAuth::from_api_key("Test API Key");
+    let (_session, turn_context, _rx) =
+        make_session_and_context_with_auth_and_config_and_rx(auth, Vec::new(), |config| {
+            let mut provider =
+                built_in_model_providers(/* openai_base_url */ None)["openai"].clone();
+            provider.name = "Example".into();
+            provider.base_url = Some("http://127.0.0.1:11434/v1".into());
+            provider.supports_websockets = false;
+            provider.requires_openai_auth = false;
+
+            config.model = Some("custom-model".into());
+            config.model_provider_id = "example".into();
+            config.model_provider = provider;
+            config.model_deepseek_compatibility =
+                codex_protocol::config_types::DeepSeekCompatibility::Enabled;
+        })
+        .await;
+
+    assert!(turn_context.model_info.used_fallback_model_metadata);
+    assert_eq!(turn_context.model_context_window(), Some(950_000));
+}
+
+#[tokio::test]
 async fn record_token_usage_info_notifies_extension_contributors() {
     struct SessionTokenUsageMarker;
     struct ThreadTokenUsageMarker;

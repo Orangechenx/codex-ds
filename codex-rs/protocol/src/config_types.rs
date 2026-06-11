@@ -36,6 +36,23 @@ pub enum AutoCompactTokenLimitScope {
     BodyAfterPrefix,
 }
 
+/// Controls whether Codex should apply DeepSeek-specific compatibility logic
+/// to the active provider/model.
+#[derive(
+    Debug, Serialize, Deserialize, Default, Clone, Copy, PartialEq, Eq, Display, JsonSchema, TS,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum DeepSeekCompatibility {
+    /// Use built-in heuristics based on provider metadata and model slug.
+    #[default]
+    Auto,
+    /// Force-enable DeepSeek-specific request shaping and fallback heuristics.
+    Enabled,
+    /// Force-disable DeepSeek-specific request shaping and fallback heuristics.
+    Disabled,
+}
+
 /// A summary of the reasoning performed by the model. This can be useful for
 /// debugging and understanding the model's reasoning process.
 /// See https://platform.openai.com/docs/guides/reasoning?api-mode=responses#reasoning-summaries

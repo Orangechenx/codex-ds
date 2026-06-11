@@ -72,6 +72,7 @@ use codex_otel::current_span_w3c_trace_context;
 
 use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
+use codex_protocol::config_types::DeepSeekCompatibility;
 use codex_protocol::config_types::ReasoningSummary as ReasoningSummaryConfig;
 use codex_protocol::config_types::Verbosity as VerbosityConfig;
 use codex_protocol::models::ResponseItem;
@@ -222,6 +223,7 @@ impl RequestRouteTelemetry {
 pub struct ModelClient {
     state: Arc<ModelClientState>,
     prompt_cache_key_override: Option<String>,
+    deepseek_compatibility_override: Option<DeepSeekCompatibility>,
 }
 
 /// A turn-scoped streaming session created from a [`ModelClient`].
@@ -358,6 +360,7 @@ impl ModelClient {
                 cached_websocket_session: StdMutex::new(WebsocketSession::default()),
             }),
             prompt_cache_key_override: None,
+            deepseek_compatibility_override: None,
         }
     }
 
@@ -366,6 +369,14 @@ impl ModelClient {
         prompt_cache_key_override: Option<String>,
     ) -> Self {
         self.prompt_cache_key_override = prompt_cache_key_override;
+        self
+    }
+
+    pub fn with_deepseek_compatibility_override(
+        mut self,
+        deepseek_compatibility_override: Option<DeepSeekCompatibility>,
+    ) -> Self {
+        self.deepseek_compatibility_override = deepseek_compatibility_override;
         self
     }
 
@@ -735,6 +746,11 @@ impl ModelClient {
     }
 
     fn provider_uses_deepseek_compat(&self, model_info: &ModelInfo) -> bool {
+        match self.deepseek_compatibility_override {
+            Some(DeepSeekCompatibility::Enabled) => return true,
+            Some(DeepSeekCompatibility::Disabled) => return false,
+            Some(DeepSeekCompatibility::Auto) | None => {}
+        }
         self.state
             .provider
             .info()

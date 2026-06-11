@@ -8,6 +8,7 @@ use codex_model_provider::SharedModelProvider;
 use codex_model_provider::create_model_provider;
 use codex_protocol::SessionId;
 use codex_protocol::ThreadId;
+use codex_protocol::config_types::DeepSeekCompatibility;
 use codex_protocol::models::AdditionalPermissionProfile;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ToolMode;
@@ -21,6 +22,18 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
 const DEEPSEEK_FALLBACK_CONTEXT_WINDOW: i64 = 1_000_000;
+
+fn deepseek_compatibility_enabled_for(
+    mode: DeepSeekCompatibility,
+    provider: &ModelProviderInfo,
+    model_slug: &str,
+) -> bool {
+    match mode {
+        DeepSeekCompatibility::Enabled => true,
+        DeepSeekCompatibility::Disabled => false,
+        DeepSeekCompatibility::Auto => provider.is_deepseek_compatible_for_model(model_slug),
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct TurnSkillsContext {
@@ -476,7 +489,11 @@ impl Session {
     ) -> TurnContext {
         let mut model_info = model_info;
         if model_info.used_fallback_model_metadata
-            && provider.is_deepseek_compatible_for_model(model_info.slug.as_str())
+            && deepseek_compatibility_enabled_for(
+                per_turn_config.model_deepseek_compatibility,
+                &provider,
+                model_info.slug.as_str(),
+            )
         {
             let context_window = per_turn_config
                 .model_context_window

@@ -1032,7 +1032,8 @@ impl Session {
                         &session_configuration.session_source,
                         session_configuration.parent_thread_id,
                     ),
-                ),
+                )
+                .with_deepseek_compatibility_override(Some(config.model_deepseek_compatibility)),
                 code_mode_service: crate::tools::code_mode::CodeModeService::new(),
                 environment_manager,
             };

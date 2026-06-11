@@ -80,6 +80,7 @@ use codex_model_provider_info::merge_configured_model_providers;
 use codex_models_manager::ModelsManagerConfig;
 use codex_protocol::config_types::AltScreenMode;
 use codex_protocol::config_types::AutoCompactTokenLimitScope;
+use codex_protocol::config_types::DeepSeekCompatibility;
 use codex_protocol::config_types::ForcedLoginMethod;
 use codex_protocol::config_types::Personality;
 use codex_protocol::config_types::ReasoningSummary;
@@ -607,6 +608,10 @@ pub struct Config {
     /// Controls whether `model_auto_compact_token_limit` applies to the full
     /// active context or only tokens after the carried compaction-window prefix.
     pub model_auto_compact_token_limit_scope: AutoCompactTokenLimitScope,
+
+    /// Controls whether DeepSeek-specific compatibility logic is auto-detected,
+    /// force-enabled, or force-disabled for the active provider/model.
+    pub model_deepseek_compatibility: DeepSeekCompatibility,
 
     /// Key into the model_providers map that specifies which provider to use.
     pub model_provider_id: String,
@@ -3415,6 +3420,7 @@ impl Config {
             model_auto_compact_token_limit_scope: cfg
                 .model_auto_compact_token_limit_scope
                 .unwrap_or_default(),
+            model_deepseek_compatibility: cfg.model_deepseek_compatibility.unwrap_or_default(),
             model_provider_id,
             model_provider,
             cwd: resolved_cwd,

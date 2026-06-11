@@ -326,6 +326,16 @@
             "null"
           ]
         },
+        "model_deepseek_compatibility": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/DeepSeekCompatibility"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "model_provider": {
           "type": [
             "string",
@@ -642,6 +652,32 @@
           ],
           "title": "LegacyManagedConfigTomlFromMdmConfigLayerSource",
           "type": "object"
+        }
+      ]
+    },
+    "DeepSeekCompatibility": {
+      "description": "Controls whether Codex should apply DeepSeek-specific compatibility logic to the active provider/model.",
+      "oneOf": [
+        {
+          "description": "Use built-in heuristics based on provider metadata and model slug.",
+          "enum": [
+            "auto"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Force-enable DeepSeek-specific request shaping and fallback heuristics.",
+          "enum": [
+            "enabled"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Force-disable DeepSeek-specific request shaping and fallback heuristics.",
+          "enum": [
+            "disabled"
+          ],
+          "type": "string"
         }
       ]
     },

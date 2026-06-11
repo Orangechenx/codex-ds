@@ -28,6 +28,7 @@ model_provider = "deepseek"
 model = "deepseek-v4-flash"
 model_context_window = 1000000
 model_auto_compact_token_limit_scope = "body_after_prefix"
+model_deepseek_compatibility = "auto"
 
 [model_providers.deepseek]
 name = "DeepSeek"
@@ -52,6 +53,23 @@ optimizations:
   fields.
 - Unknown DeepSeek model slugs inherit a 1,000,000-token fallback context
   window unless you explicitly override `model_context_window`.
+
+### Explicit compatibility override
+
+`model_deepseek_compatibility` accepts three values:
+
+- `auto` — use Codex's built-in DeepSeek detection heuristics.
+- `enabled` — force-enable DeepSeek compatibility even if the provider name,
+  base URL, and model slug do not contain `deepseek`.
+- `disabled` — force-disable DeepSeek compatibility, even for a provider that
+  would normally be detected as DeepSeek-compatible.
+
+Typical cases:
+
+- Use `enabled` when you are routing through a generic OpenAI-compatible
+  gateway that fronts DeepSeek models.
+- Use `disabled` when you need to compare raw request behavior against a
+  non-DeepSeek code path.
 
 ## Lifecycle hooks
 
