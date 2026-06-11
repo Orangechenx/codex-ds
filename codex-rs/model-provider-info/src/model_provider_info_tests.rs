@@ -199,6 +199,59 @@ fn test_supports_remote_compaction_for_non_openai_non_azure_provider() {
 }
 
 #[test]
+fn test_detects_deepseek_compatibility_from_provider_metadata() {
+    let provider = ModelProviderInfo {
+        name: "DeepSeek Proxy".into(),
+        base_url: Some("https://proxy.example.com/v1".into()),
+        env_key: Some("DEEPSEEK_API_KEY".into()),
+        env_key_instructions: None,
+        experimental_bearer_token: None,
+        auth: None,
+        aws: None,
+        wire_api: WireApi::Responses,
+        query_params: None,
+        http_headers: None,
+        env_http_headers: None,
+        request_max_retries: None,
+        stream_max_retries: None,
+        stream_idle_timeout_ms: None,
+        websocket_connect_timeout_ms: None,
+        requires_openai_auth: false,
+        supports_websockets: false,
+    };
+
+    assert!(provider.is_deepseek_compatible());
+    assert!(provider.is_deepseek_compatible_for_model("gpt-5.4"));
+}
+
+#[test]
+fn test_detects_deepseek_compatibility_from_model_slug() {
+    let provider = ModelProviderInfo {
+        name: "Example".into(),
+        base_url: Some("https://example.com/v1".into()),
+        env_key: Some("API_KEY".into()),
+        env_key_instructions: None,
+        experimental_bearer_token: None,
+        auth: None,
+        aws: None,
+        wire_api: WireApi::Responses,
+        query_params: None,
+        http_headers: None,
+        env_http_headers: None,
+        request_max_retries: None,
+        stream_max_retries: None,
+        stream_idle_timeout_ms: None,
+        websocket_connect_timeout_ms: None,
+        requires_openai_auth: false,
+        supports_websockets: false,
+    };
+
+    assert!(!provider.is_deepseek_compatible());
+    assert!(provider.is_deepseek_compatible_for_model("deepseek-v4-flash"));
+    assert!(!provider.is_deepseek_compatible_for_model("gpt-5.4"));
+}
+
+#[test]
 fn test_deserialize_provider_auth_config_defaults() {
     let base_dir = tempdir().unwrap();
     let provider_toml = r#"

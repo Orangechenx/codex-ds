@@ -734,6 +734,41 @@ impl ModelClient {
         }
     }
 
+    fn provider_uses_deepseek_compat(&self, model_info: &ModelInfo) -> bool {
+        self.state
+            .provider
+            .info()
+            .is_deepseek_compatible_for_model(model_info.slug.as_str())
+    }
+
+    fn sanitize_input_for_provider(
+        &self,
+        input: Vec<ResponseItem>,
+        model_info: &ModelInfo,
+    ) -> Vec<ResponseItem> {
+        if !self.provider_uses_deepseek_compat(model_info) {
+            return input;
+        }
+
+        input
+            .into_iter()
+            .map(|item| match item {
+                ResponseItem::Reasoning {
+                    id,
+                    summary,
+                    content,
+                    encrypted_content: _,
+                } => ResponseItem::Reasoning {
+                    id,
+                    summary,
+                    content,
+                    encrypted_content: None,
+                },
+                other => other,
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn build_responses_request(
         &self,
@@ -746,10 +781,10 @@ impl ModelClient {
         window_id: &str,
     ) -> Result<ResponsesApiRequest> {
         let instructions = &prompt.base_instructions.text;
-        let input = prompt.get_formatted_input();
+        let input = self.sanitize_input_for_provider(prompt.get_formatted_input(), model_info);
         let tools = create_tools_json_for_responses_api(&prompt.tools)?;
         let reasoning = Self::build_reasoning(model_info, effort, summary);
-        let include = if reasoning.is_some() {
+        let include = if reasoning.is_some() && !self.provider_uses_deepseek_compat(model_info) {
             vec!["reasoning.encrypted_content".to_string()]
         } else {
             Vec::new()

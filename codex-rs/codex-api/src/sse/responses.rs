@@ -109,6 +109,11 @@ struct ResponseCompleted {
 #[derive(Debug, Deserialize)]
 struct ResponseCompletedUsage {
     input_tokens: i64,
+    #[serde(default)]
+    prompt_cache_hit_tokens: i64,
+    #[allow(dead_code)]
+    #[serde(default)]
+    prompt_cache_miss_tokens: i64,
     input_tokens_details: Option<ResponseCompletedInputTokensDetails>,
     output_tokens: i64,
     output_tokens_details: Option<ResponseCompletedOutputTokensDetails>,
@@ -117,12 +122,16 @@ struct ResponseCompletedUsage {
 
 impl From<ResponseCompletedUsage> for TokenUsage {
     fn from(val: ResponseCompletedUsage) -> Self {
+        let cached_input_tokens = if val.prompt_cache_hit_tokens > 0 {
+            val.prompt_cache_hit_tokens
+        } else {
+            val.input_tokens_details
+                .map(|d| d.cached_tokens)
+                .unwrap_or(0)
+        };
         TokenUsage {
             input_tokens: val.input_tokens,
-            cached_input_tokens: val
-                .input_tokens_details
-                .map(|d| d.cached_tokens)
-                .unwrap_or(0),
+            cached_input_tokens,
             output_tokens: val.output_tokens,
             reasoning_output_tokens: val
                 .output_tokens_details
@@ -1199,6 +1208,39 @@ mod tests {
                 token_usage: None,
                 end_turn: None,
             } if response_id == "resp-1"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_sse_reads_deepseek_prompt_cache_usage_fields() {
+        let events = run_sse(vec![json!({
+            "type": "response.completed",
+            "response": {
+                "id": "resp-1",
+                "usage": {
+                    "input_tokens": 120,
+                    "prompt_cache_hit_tokens": 80,
+                    "prompt_cache_miss_tokens": 40,
+                    "output_tokens": 3,
+                    "output_tokens_details": null,
+                    "total_tokens": 123
+                }
+            }
+        })])
+        .await;
+
+        assert_eq!(events.len(), 1);
+        assert_matches!(
+            &events[0],
+            ResponseEvent::Completed {
+                response_id,
+                token_usage: Some(token_usage),
+                end_turn: None,
+            } if response_id == "resp-1"
+                && token_usage.input_tokens == 120
+                && token_usage.cached_input_tokens == 80
+                && token_usage.output_tokens == 3
+                && token_usage.total_tokens == 123
         );
     }
 

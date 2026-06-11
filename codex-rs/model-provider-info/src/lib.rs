@@ -37,6 +37,7 @@ pub const OPENAI_PROVIDER_ID: &str = "openai";
 pub const CHATGPT_CODEX_BASE_URL: &str = "https://chatgpt.com/backend-api/codex";
 const AMAZON_BEDROCK_PROVIDER_NAME: &str = "Amazon Bedrock";
 pub const AMAZON_BEDROCK_PROVIDER_ID: &str = "amazon-bedrock";
+const DEEPSEEK_MATCH_TOKEN: &str = "deepseek";
 pub const AMAZON_BEDROCK_GPT_5_5_MODEL_ID: &str = "openai.gpt-5.5";
 pub const AMAZON_BEDROCK_GPT_5_4_MODEL_ID: &str = "openai.gpt-5.4";
 pub const AMAZON_BEDROCK_DEFAULT_BASE_URL: &str =
@@ -400,9 +401,30 @@ impl ModelProviderInfo {
         self.is_openai() || is_azure_responses_provider(&self.name, self.base_url.as_deref())
     }
 
+    pub fn is_deepseek_compatible(&self) -> bool {
+        self.name
+            .to_ascii_lowercase()
+            .contains(DEEPSEEK_MATCH_TOKEN)
+            || self
+                .base_url
+                .as_deref()
+                .is_some_and(is_deepseek_compatible_base_url)
+    }
+
+    pub fn is_deepseek_compatible_for_model(&self, model_slug: &str) -> bool {
+        self.is_deepseek_compatible()
+            || model_slug
+                .to_ascii_lowercase()
+                .contains(DEEPSEEK_MATCH_TOKEN)
+    }
+
     pub fn has_command_auth(&self) -> bool {
         self.auth.is_some()
     }
+}
+
+fn is_deepseek_compatible_base_url(base_url: &str) -> bool {
+    base_url.to_ascii_lowercase().contains(DEEPSEEK_MATCH_TOKEN)
 }
 
 pub const DEFAULT_LMSTUDIO_PORT: u16 = 1234;

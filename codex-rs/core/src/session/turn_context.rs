@@ -20,6 +20,8 @@ use codex_sandboxing::policy_transforms::effective_network_sandbox_policy;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+const DEEPSEEK_FALLBACK_CONTEXT_WINDOW: i64 = 1_000_000;
+
 #[derive(Clone, Debug)]
 pub(crate) struct TurnSkillsContext {
     pub(crate) outcome: Arc<SkillLoadOutcome>,
@@ -472,6 +474,21 @@ impl Session {
         sub_id: String,
         skills_outcome: Arc<SkillLoadOutcome>,
     ) -> TurnContext {
+        let mut model_info = model_info;
+        if model_info.used_fallback_model_metadata
+            && provider.is_deepseek_compatible_for_model(model_info.slug.as_str())
+        {
+            let context_window = per_turn_config
+                .model_context_window
+                .unwrap_or(DEEPSEEK_FALLBACK_CONTEXT_WINDOW);
+            model_info.context_window = Some(context_window);
+            model_info.max_context_window = Some(
+                model_info
+                    .max_context_window
+                    .map_or(context_window, |existing| existing.max(context_window)),
+            );
+        }
+
         let reasoning_effort = session_configuration.collaboration_mode.reasoning_effort();
         let reasoning_summary = session_configuration
             .model_reasoning_summary

@@ -27,6 +27,7 @@ use core_test_support::test_codex::local_selections;
 use codex_features::Feature;
 use codex_login::CodexAuth;
 use codex_model_provider_info::ModelProviderInfo;
+use codex_model_provider_info::built_in_model_providers;
 use codex_models_manager::bundled_models_response;
 use codex_models_manager::model_info;
 use codex_models_manager::test_support::construct_model_info_offline_for_tests;
@@ -1903,6 +1904,28 @@ async fn recompute_token_usage_updates_model_context_window() {
 
     let actual = session.state.lock().await.token_info().expect("token info");
     assert_eq!(actual.model_context_window, Some(128_000));
+}
+
+#[tokio::test]
+async fn unknown_deepseek_models_use_large_fallback_context_window() {
+    let auth = CodexAuth::from_api_key("Test API Key");
+    let (_session, turn_context, _rx) =
+        make_session_and_context_with_auth_and_config_and_rx(auth, Vec::new(), |config| {
+            let mut provider =
+                built_in_model_providers(/* openai_base_url */ None)["openai"].clone();
+            provider.name = "DeepSeek".into();
+            provider.base_url = Some("http://127.0.0.1:11434/v1".into());
+            provider.supports_websockets = false;
+            provider.requires_openai_auth = false;
+
+            config.model = Some("deepseek-v4-flash".into());
+            config.model_provider_id = "deepseek".into();
+            config.model_provider = provider;
+        })
+        .await;
+
+    assert!(turn_context.model_info.used_fallback_model_metadata);
+    assert_eq!(turn_context.model_context_window(), Some(950_000));
 }
 
 #[tokio::test]
