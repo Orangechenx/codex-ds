@@ -2632,6 +2632,7 @@ async fn deepseek_provider_omits_reasoning_encrypted_content_and_strips_history(
         body["input"][0]["summary"][0]["text"].as_str(),
         Some("summary")
     );
+    assert_eq!(body["input"][0]["content"], serde_json::Value::Null);
     assert_eq!(
         body["input"][0]["encrypted_content"],
         serde_json::Value::Null
@@ -2758,6 +2759,7 @@ async fn deepseek_compatibility_override_enabled_applies_to_generic_provider() {
     }
 
     let body = resp_mock.single_request().body_json();
+    assert_eq!(body["input"][0]["content"], serde_json::Value::Null);
     assert_eq!(
         body["input"][0]["encrypted_content"],
         serde_json::Value::Null
@@ -2883,6 +2885,10 @@ async fn deepseek_compatibility_override_disabled_preserves_reasoning_round_trip
     }
 
     let body = resp_mock.single_request().body_json();
+    assert_eq!(
+        body["input"][0]["content"][0]["text"].as_str(),
+        Some("content")
+    );
     assert_eq!(
         body["input"][0]["encrypted_content"].as_str(),
         Some("encrypted-reasoning")

@@ -772,12 +772,12 @@ impl ModelClient {
                 ResponseItem::Reasoning {
                     id,
                     summary,
-                    content,
+                    content: _,
                     encrypted_content: _,
                 } => ResponseItem::Reasoning {
                     id,
                     summary,
-                    content,
+                    content: None,
                     encrypted_content: None,
                 },
                 other => other,

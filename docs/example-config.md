@@ -34,7 +34,8 @@ Notes:
   Use `enabled` when a proxy/gateway hides the DeepSeek name, and `disabled`
   when you need to opt out of the compatibility logic for debugging.
 - For those providers, Codex will not request
-  `reasoning.encrypted_content`, and it strips cached encrypted reasoning from
-  replayed history to reduce prompt-token overhead on long sessions.
+  `reasoning.encrypted_content`, and it strips cached raw/encrypted reasoning
+  content from replayed history to reduce prompt-token overhead on long
+  sessions.
 - If your gateway supports the Responses WebSocket transport, you can set
   `supports_websockets = true`; otherwise leave it disabled.
