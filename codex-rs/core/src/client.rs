@@ -1046,6 +1046,51 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    fn stabilize_request_prefix_for_provider(
+        &self,
+        mut request: ResponsesApiRequest,
+        model_info: &ModelInfo,
+    ) -> ResponsesApiRequest {
+        if !self.client.provider_uses_deepseek_compat(model_info) {
+            return request;
+        }
+        let Some(previous_request) = self.websocket_session.last_request.as_ref() else {
+            return request;
+        };
+
+        for (current, previous) in request.input.iter_mut().zip(previous_request.input.iter()) {
+            match (&*current, previous) {
+                (
+                    ResponseItem::FunctionCallOutput {
+                        call_id: current_call_id,
+                        ..
+                    },
+                    ResponseItem::FunctionCallOutput {
+                        call_id: previous_call_id,
+                        ..
+                    },
+                ) if current_call_id == previous_call_id => {
+                    *current = previous.clone();
+                }
+                (
+                    ResponseItem::CustomToolCallOutput {
+                        call_id: current_call_id,
+                        ..
+                    },
+                    ResponseItem::CustomToolCallOutput {
+                        call_id: previous_call_id,
+                        ..
+                    },
+                ) if current_call_id == previous_call_id => {
+                    *current = previous.clone();
+                }
+                _ => {}
+            }
+        }
+
+        request
+    }
+
     fn reset_websocket_session(&mut self) {
         self.websocket_session.connection = None;
         self.websocket_session.last_request = None;
@@ -1323,7 +1368,7 @@ impl ModelClientSession {
         )
     )]
     async fn stream_responses_api(
-        &self,
+        &mut self,
         window_id: &str,
         prompt: &Prompt,
         model_info: &ModelInfo,
@@ -1363,15 +1408,18 @@ impl ModelClientSession {
                 )
                 .await;
 
-            let request = self.client.build_responses_request(
-                &client_setup.api_provider,
-                prompt,
+            let request = self.stabilize_request_prefix_for_provider(
+                self.client.build_responses_request(
+                    &client_setup.api_provider,
+                    prompt,
+                    model_info,
+                    effort.clone(),
+                    summary,
+                    service_tier.clone(),
+                    window_id,
+                )?,
                 model_info,
-                effort.clone(),
-                summary,
-                service_tier.clone(),
-                window_id,
-            )?;
+            );
             let inference_trace_attempt = inference_trace.start_attempt();
             inference_trace_attempt.add_request_headers(&mut options.extra_headers);
             inference_trace_attempt.record_started(&request);
@@ -1381,10 +1429,11 @@ impl ModelClientSession {
                 client_setup.api_auth,
             )
             .with_telemetry(Some(request_telemetry), Some(sse_telemetry));
-            let stream_result = client.stream_request(request, options).await;
+            let stream_result = client.stream_request(request.clone(), options).await;
 
             match stream_result {
                 Ok(stream) => {
+                    self.websocket_session.last_request = Some(request);
                     let (stream, _) = map_response_stream(
                         stream,
                         session_telemetry.clone(),
@@ -1479,15 +1528,18 @@ impl ModelClientSession {
                     model_info.use_responses_lite,
                 )
                 .await;
-            let request = self.client.build_responses_request(
-                &client_setup.api_provider,
-                prompt,
+            let request = self.stabilize_request_prefix_for_provider(
+                self.client.build_responses_request(
+                    &client_setup.api_provider,
+                    prompt,
+                    model_info,
+                    effort.clone(),
+                    summary,
+                    service_tier.clone(),
+                    window_id,
+                )?,
                 model_info,
-                effort.clone(),
-                summary,
-                service_tier.clone(),
-                window_id,
-            )?;
+            );
             let mut ws_payload = ResponseCreateWsRequest {
                 client_metadata: response_create_client_metadata(
                     Some(self.client.build_ws_client_metadata(

@@ -22,6 +22,7 @@ use codex_protocol::config_types::ReasoningSummary;
 use codex_protocol::config_types::ServiceTier;
 use codex_protocol::models::BaseInstructions;
 use codex_protocol::models::ContentItem;
+use codex_protocol::models::FunctionCallOutputPayload;
 use codex_protocol::models::ResponseItem;
 use codex_protocol::openai_models::ModelInfo;
 use codex_protocol::openai_models::ReasoningEffort as ReasoningEffortConfig;
@@ -1970,6 +1971,23 @@ fn assistant_message_item(id: &str, text: &str) -> ResponseItem {
     }
 }
 
+fn function_call_item(call_id: &str, name: &str) -> ResponseItem {
+    ResponseItem::FunctionCall {
+        id: Some(format!("{call_id}-id")),
+        name: name.to_string(),
+        namespace: None,
+        arguments: "{}".to_string(),
+        call_id: call_id.to_string(),
+    }
+}
+
+fn function_call_output_item(call_id: &str, text: &str) -> ResponseItem {
+    ResponseItem::FunctionCallOutput {
+        call_id: call_id.to_string(),
+        output: FunctionCallOutputPayload::from_text(text.to_string()),
+    }
+}
+
 fn prompt_with_input(input: Vec<ResponseItem>) -> Prompt {
     let mut prompt = Prompt::default();
     prompt.input = input;
@@ -2037,6 +2055,53 @@ async fn websocket_harness_with_options(
 ) -> WebsocketTestHarness {
     websocket_harness_with_provider_options(websocket_provider(server), runtime_metrics_enabled)
         .await
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deepseek_websocket_reuses_previous_response_id_when_old_output_is_retruncated() {
+    skip_if_no_network!();
+
+    let server = start_websocket_server(vec![vec![
+        vec![ev_response_created("resp-1"), ev_completed("resp-1")],
+        vec![ev_response_created("resp-2"), ev_completed("resp-2")],
+    ]])
+    .await;
+
+    let mut provider = websocket_provider(&server);
+    provider.name = "DeepSeek".into();
+    let harness = websocket_harness_with_provider_options(provider, /*runtime_metrics_enabled*/ false).await;
+    let mut session = harness.client.new_session();
+
+    let long_output = "very long historical output line\n".repeat(3_000);
+    let prompt_one = prompt_with_input(vec![
+        message_item("hello"),
+        function_call_item("old-call", "old_tool"),
+        function_call_output_item("old-call", &long_output),
+    ]);
+    let prompt_two = prompt_with_input(vec![
+        message_item("hello"),
+        function_call_item("old-call", "old_tool"),
+        function_call_output_item("old-call", &long_output),
+        message_item("second"),
+        function_call_item("new-call", "new_tool"),
+        function_call_output_item("new-call", "recent short output"),
+    ]);
+
+    stream_until_complete(&mut session, &harness, &prompt_one).await;
+    stream_until_complete(&mut session, &harness, &prompt_two).await;
+
+    let connection = server.single_connection();
+    assert_eq!(connection.len(), 2);
+    let second = connection.get(1).expect("missing request").body_json();
+
+    assert_eq!(second["type"].as_str(), Some("response.create"));
+    assert_eq!(second["previous_response_id"].as_str(), Some("resp-1"));
+    assert_eq!(
+        second["input"],
+        serde_json::to_value(&prompt_two.input[3..]).expect("serialize incremental input")
+    );
+
+    server.shutdown().await;
 }
 
 async fn websocket_harness_with_provider_options(
