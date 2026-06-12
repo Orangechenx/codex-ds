@@ -858,6 +858,7 @@ impl ModelClient {
         let request = ResponsesApiRequest {
             model: model_info.slug.clone(),
             instructions: instructions.clone(),
+            previous_response_id: None,
             input,
             tools,
             tool_choice: "auto".to_string(),
@@ -1179,6 +1180,27 @@ impl ModelClientSession {
         }
     }
 
+    fn prepare_http_request(&mut self, request: ResponsesApiRequest) -> ResponsesApiRequest {
+        let Some(last_response) = self.get_last_response() else {
+            return request;
+        };
+        let Some(incremental_items) = self.get_incremental_items(
+            &request,
+            Some(&last_response),
+            /*allow_empty_delta*/ false,
+        ) else {
+            return request;
+        };
+        if last_response.response_id.is_empty() {
+            return request;
+        }
+
+        let mut request = request;
+        request.previous_response_id = Some(last_response.response_id);
+        request.input = incremental_items;
+        request
+    }
+
     fn get_last_response(&mut self) -> Option<LastResponse> {
         self.websocket_session
             .last_response_rx
@@ -1408,7 +1430,7 @@ impl ModelClientSession {
                 )
                 .await;
 
-            let request = self.stabilize_request_prefix_for_provider(
+            let logical_request = self.stabilize_request_prefix_for_provider(
                 self.client.build_responses_request(
                     &client_setup.api_provider,
                     prompt,
@@ -1420,6 +1442,7 @@ impl ModelClientSession {
                 )?,
                 model_info,
             );
+            let request = self.prepare_http_request(logical_request.clone());
             let inference_trace_attempt = inference_trace.start_attempt();
             inference_trace_attempt.add_request_headers(&mut options.extra_headers);
             inference_trace_attempt.record_started(&request);
@@ -1433,12 +1456,13 @@ impl ModelClientSession {
 
             match stream_result {
                 Ok(stream) => {
-                    self.websocket_session.last_request = Some(request);
-                    let (stream, _) = map_response_stream(
+                    self.websocket_session.last_request = Some(logical_request);
+                    let (stream, last_request_rx) = map_response_stream(
                         stream,
                         session_telemetry.clone(),
                         inference_trace_attempt,
                     );
+                    self.websocket_session.last_response_rx = Some(last_request_rx);
                     return Ok(stream);
                 }
                 Err(ApiError::Transport(

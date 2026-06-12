@@ -2069,7 +2069,8 @@ async fn deepseek_websocket_reuses_previous_response_id_when_old_output_is_retru
 
     let mut provider = websocket_provider(&server);
     provider.name = "DeepSeek".into();
-    let harness = websocket_harness_with_provider_options(provider, /*runtime_metrics_enabled*/ false).await;
+    let harness =
+        websocket_harness_with_provider_options(provider, /*runtime_metrics_enabled*/ false).await;
     let mut session = harness.client.new_session();
 
     let long_output = "very long historical output line\n".repeat(3_000);

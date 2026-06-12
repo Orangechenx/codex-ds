@@ -3772,3 +3772,134 @@ async fn history_dedupes_streamed_and_final_messages_across_turns() {
         "request 3 tail mismatch",
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_responses_use_previous_response_id_when_prefix_extends() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = MockServer::start().await;
+    let sse1 = sse(vec![
+        ev_response_created("resp-1"),
+        ev_assistant_message("msg-1", "assistant output"),
+        ev_completed("resp-1"),
+    ]);
+    let sse2 = sse(vec![ev_response_created("resp-2"), ev_completed("resp-2")]);
+    let request_log = mount_sse_sequence(&server, vec![sse1, sse2]).await;
+
+    let codex = test_codex()
+        .with_auth(CodexAuth::from_api_key("Test API Key"))
+        .build(&server)
+        .await?
+        .codex;
+
+    codex
+        .submit(Op::UserInput {
+            items: vec![UserInput::Text {
+                text: "hello 1".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
+        })
+        .await?;
+    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+
+    codex
+        .submit(Op::UserInput {
+            items: vec![UserInput::Text {
+                text: "hello 2".into(),
+                text_elements: Vec::new(),
+            }],
+            final_output_json_schema: None,
+            responsesapi_client_metadata: None,
+            additional_context: Default::default(),
+            thread_settings: Default::default(),
+        })
+        .await?;
+    wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+
+    let requests = request_log.requests();
+    assert_eq!(requests.len(), 2);
+
+    let first_body = requests[0].body_json();
+    let second_body = requests[1].body_json();
+
+    assert_eq!(first_body.get("previous_response_id"), None);
+    assert_eq!(second_body["previous_response_id"].as_str(), Some("resp-1"));
+
+    let second_input = second_body["input"].as_array().expect("input array");
+    assert_eq!(
+        second_input.len(),
+        1,
+        "expected only incremental user input"
+    );
+    assert_eq!(
+        second_input[0]["content"][0]["text"].as_str(),
+        Some("hello 2")
+    );
+
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn http_responses_keep_previous_response_id_across_multiple_turns() -> anyhow::Result<()> {
+    skip_if_no_network!(Ok(()));
+
+    let server = MockServer::start().await;
+    let sse1 = sse(vec![
+        ev_response_created("resp-1"),
+        ev_assistant_message("msg-1", "assistant one"),
+        ev_completed("resp-1"),
+    ]);
+    let sse2 = sse(vec![
+        ev_response_created("resp-2"),
+        ev_assistant_message("msg-2", "assistant two"),
+        ev_completed("resp-2"),
+    ]);
+    let sse3 = sse(vec![ev_response_created("resp-3"), ev_completed("resp-3")]);
+    let request_log = mount_sse_sequence(&server, vec![sse1, sse2, sse3]).await;
+
+    let codex = test_codex()
+        .with_auth(CodexAuth::from_api_key("Test API Key"))
+        .build(&server)
+        .await?
+        .codex;
+
+    for text in ["hello 1", "hello 2", "hello 3"] {
+        codex
+            .submit(Op::UserInput {
+                items: vec![UserInput::Text {
+                    text: text.into(),
+                    text_elements: Vec::new(),
+                }],
+                final_output_json_schema: None,
+                responsesapi_client_metadata: None,
+                additional_context: Default::default(),
+                thread_settings: Default::default(),
+            })
+            .await?;
+        wait_for_event(&codex, |ev| matches!(ev, EventMsg::TurnComplete(_))).await;
+    }
+
+    let requests = request_log.requests();
+    assert_eq!(requests.len(), 3);
+
+    let first_body = requests[0].body_json();
+    let second_body = requests[1].body_json();
+    let third_body = requests[2].body_json();
+
+    assert_eq!(first_body.get("previous_response_id"), None);
+    assert_eq!(second_body["previous_response_id"].as_str(), Some("resp-1"));
+    assert_eq!(third_body["previous_response_id"].as_str(), Some("resp-2"));
+
+    let third_input = third_body["input"].as_array().expect("input array");
+    assert_eq!(third_input.len(), 1);
+    assert_eq!(
+        third_input[0]["content"][0]["text"].as_str(),
+        Some("hello 3")
+    );
+
+    Ok(())
+}
