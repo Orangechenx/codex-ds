@@ -1,4 +1,5 @@
 use super::AuthRequestTelemetryContext;
+use super::IncrementalRequestMissReason;
 use super::ModelClient;
 use super::PendingUnauthorizedRetry;
 use super::UnauthorizedRecoveryExecution;
@@ -12,6 +13,7 @@ use crate::AttestationProvider;
 use crate::GenerateAttestationFuture;
 use codex_api::ApiError;
 use codex_api::ResponseEvent;
+use codex_api::ResponsesApiRequest;
 use codex_app_server_protocol::AuthMode;
 use codex_login::AuthManager;
 use codex_login::CodexAuth;
@@ -131,6 +133,34 @@ fn test_session_telemetry() -> SessionTelemetry {
     )
 }
 
+fn sample_responses_request(input: Vec<ResponseItem>) -> ResponsesApiRequest {
+    ResponsesApiRequest {
+        model: "gpt-test".to_string(),
+        instructions: "base instructions".to_string(),
+        previous_response_id: None,
+        input,
+        tools: Vec::new(),
+        tool_choice: "auto".to_string(),
+        parallel_tool_calls: false,
+        reasoning: None,
+        store: false,
+        stream: true,
+        include: Vec::new(),
+        service_tier: None,
+        prompt_cache_key: Some("thread-1".to_string()),
+        text: None,
+        client_metadata: Some(BTreeMap::from([
+            (
+                X_CODEX_INSTALLATION_ID_HEADER.to_string(),
+                "11111111-1111-4111-8111-111111111111".to_string(),
+            ),
+            (X_CODEX_WINDOW_ID_HEADER.to_string(), "window-1".to_string()),
+        ])
+        .into_iter()
+        .collect()),
+    }
+}
+
 #[derive(Default)]
 struct TagCollectorVisitor {
     tags: BTreeMap<String, String>,
@@ -208,6 +238,69 @@ fn output_message(id: &str, text: &str) -> ResponseItem {
         id: Some(id.to_string()),
         role: "assistant".to_string(),
         content: vec![ContentItem::OutputText {
+            text: text.to_string(),
+        }],
+        phase: None,
+    }
+}
+
+#[test]
+fn incremental_request_ignores_client_metadata_differences() {
+    let client = test_model_client(SessionSource::Cli);
+    let mut session = client.new_session();
+
+    let previous_request = sample_responses_request(vec![user_message("hello 1")]);
+    session.websocket_session.last_request = Some(previous_request.clone());
+
+    let mut current_request = sample_responses_request(vec![
+        user_message("hello 1"),
+        user_message("hello 2"),
+    ]);
+    current_request.client_metadata = Some(
+        [
+            (
+                X_CODEX_INSTALLATION_ID_HEADER.to_string(),
+                "11111111-1111-4111-8111-111111111111".to_string(),
+            ),
+            (X_CODEX_WINDOW_ID_HEADER.to_string(), "window-2".to_string()),
+        ]
+        .into_iter()
+        .collect(),
+    );
+
+    let delta = session
+        .get_incremental_items_with_reason(&current_request, /*last_response*/ None, false)
+        .expect("client_metadata-only change should still allow incremental reuse");
+
+    assert_eq!(delta, vec![user_message("hello 2")]);
+}
+
+#[test]
+fn incremental_request_reports_property_change_reason() {
+    let client = test_model_client(SessionSource::Cli);
+    let mut session = client.new_session();
+
+    let previous_request = sample_responses_request(vec![user_message("hello 1")]);
+    session.websocket_session.last_request = Some(previous_request);
+
+    let mut current_request = sample_responses_request(vec![
+        user_message("hello 1"),
+        user_message("hello 2"),
+    ]);
+    current_request.instructions = "different instructions".to_string();
+
+    let err = session
+        .get_incremental_items_with_reason(&current_request, /*last_response*/ None, false)
+        .expect_err("instruction changes should prevent incremental reuse");
+
+    assert_eq!(err, IncrementalRequestMissReason::PropertiesChanged);
+}
+
+fn user_message(text: &str) -> ResponseItem {
+    ResponseItem::Message {
+        id: None,
+        role: "user".to_string(),
+        content: vec![ContentItem::InputText {
             text: text.to_string(),
         }],
         phase: None,

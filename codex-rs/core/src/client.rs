@@ -295,6 +295,25 @@ enum WebsocketStreamOutcome {
     FallbackToHttp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IncrementalRequestMissReason {
+    NoPreviousRequest,
+    PropertiesChanged,
+    ItemsMismatch,
+    NoPreviousResponseId,
+}
+
+impl IncrementalRequestMissReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::NoPreviousRequest => "no_previous_request",
+            Self::PropertiesChanged => "properties_changed",
+            Self::ItemsMismatch => "items_mismatch",
+            Self::NoPreviousResponseId => "no_previous_response_id",
+        }
+    }
+}
+
 /// Result of opening a WebRTC Realtime call.
 ///
 /// The SDP answer goes back to the client. The call id and auth headers stay on the server so the
@@ -1047,6 +1066,16 @@ impl Drop for ModelClientSession {
 }
 
 impl ModelClientSession {
+    fn normalized_request_for_incremental(
+        request: &ResponsesApiRequest,
+    ) -> ResponsesApiRequest {
+        let mut request = request.clone();
+        request.input.clear();
+        request.client_metadata = None;
+        request.previous_response_id = None;
+        request
+    }
+
     fn stabilize_request_prefix_for_provider(
         &self,
         mut request: ResponsesApiRequest,
@@ -1147,21 +1176,40 @@ impl ModelClientSession {
         last_response: Option<&LastResponse>,
         allow_empty_delta: bool,
     ) -> Option<Vec<ResponseItem>> {
+        match self.get_incremental_items_with_reason(request, last_response, allow_empty_delta) {
+            Ok(items) => Some(items),
+            Err(reason) => {
+                trace!(reason = reason.as_str(), "incremental request failed");
+                None
+            }
+        }
+    }
+
+    fn get_incremental_items_with_reason(
+        &self,
+        request: &ResponsesApiRequest,
+        last_response: Option<&LastResponse>,
+        allow_empty_delta: bool,
+    ) -> std::result::Result<Vec<ResponseItem>, IncrementalRequestMissReason> {
         // Checks whether the current request is an incremental extension of the previous request.
         // We only reuse an incremental input delta when non-input request fields are unchanged and
         // `input` is a strict
         // extension of the previous known input. Server-returned output items are treated as part
         // of the baseline so we do not resend them.
-        let previous_request = self.websocket_session.last_request.as_ref()?;
-        let mut previous_without_input = previous_request.clone();
-        previous_without_input.input.clear();
-        let mut request_without_input = request.clone();
-        request_without_input.input.clear();
+        let previous_request = self
+            .websocket_session
+            .last_request
+            .as_ref()
+            .ok_or(IncrementalRequestMissReason::NoPreviousRequest)?;
+        let previous_without_input = Self::normalized_request_for_incremental(previous_request);
+        let request_without_input = Self::normalized_request_for_incremental(request);
         if previous_without_input != request_without_input {
             trace!(
-                "incremental request failed, properties didn't match {previous_without_input:?} != {request_without_input:?}"
+                previous = ?previous_without_input,
+                current = ?request_without_input,
+                "incremental request properties changed"
             );
-            return None;
+            return Err(IncrementalRequestMissReason::PropertiesChanged);
         }
 
         let mut baseline = previous_request.input.clone();
@@ -1173,10 +1221,9 @@ impl ModelClientSession {
         if request.input.starts_with(&baseline)
             && (allow_empty_delta || baseline_len < request.input.len())
         {
-            Some(request.input[baseline_len..].to_vec())
+            Ok(request.input[baseline_len..].to_vec())
         } else {
-            trace!("incremental request failed, items didn't match");
-            None
+            Err(IncrementalRequestMissReason::ItemsMismatch)
         }
     }
 
@@ -1192,6 +1239,10 @@ impl ModelClientSession {
             return request;
         };
         if last_response.response_id.is_empty() {
+            trace!(
+                reason = IncrementalRequestMissReason::NoPreviousResponseId.as_str(),
+                "incremental request failed"
+            );
             return request;
         }
 
@@ -1230,7 +1281,10 @@ impl ModelClientSession {
         };
 
         if last_response.response_id.is_empty() {
-            trace!("incremental request failed, no previous response id");
+            trace!(
+                reason = IncrementalRequestMissReason::NoPreviousResponseId.as_str(),
+                "incremental request failed"
+            );
             return (ResponsesWsRequest::ResponseCreate(payload), false);
         }
 
